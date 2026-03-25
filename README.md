@@ -47,118 +47,34 @@ node --version
 npm --version
 ```
 
-### NPM (Recommended)
+
+## 🚨 KEEPALIVE MODE (AUTO RENEW BEFORE 4H)
+
+> # ⚠️ QUAN TRỌNG
+> Nếu bạn chạy từ source local, hãy dùng `keepalive` để tunnel tự đóng/mở lại trước mốc 4h và giữ subdomain ổn định.
+> 
+> ✅ Lệnh chính: `npm run keepalive -- 3001 -s api`
+
+### Run from source (local)
 
 ```bash
-# Global installation
-npm install -g nport
+# 1) Clone repo
+git clone https://github.com/taivippro123/nport.git
+cd nport
 
-# Or use npx without installation
-npx nport 3000 -s myapp
+# 2) Install dependencies
+npm install
+
+# 3) Build
+npm run build
+
+# 4) Run keepalive (auto renew tunnel before 4h)
+npm run keepalive -- 3001 -s api
 ```
 
-### From GitHub
+`keepalive` sẽ tự gửi tín hiệu như `Ctrl+C` để cleanup rồi mở lại tunnel theo chu kỳ, tránh bị ngắt do giới hạn 4h.
 
-```bash
-npm install -g git+https://github.com/tuanngocptn/nport.git
-```
 
-## 🚀 Quick Start
-
-### Basic Usage
-
-Expose port 3000 with a random subdomain:
-```bash
-nport 3000
-```
-
-Output:
-```
- ╭────────────────────────────────────────────────────────╮
- │  N P O R T  ⚡️  Free & Open Source from Vietnam        │
- ╰────────────────────────────────────────────────────────╯
-
-⠋ Creating tunnel for port 3000...
-   🚀 WE LIVE BABY!
-   
-   👉  https://user-1234.nport.link  👈
-   
-   ───────────────────────────────────────────────────────
-   
-   ⏱️  Time:     4h remaining
-   
-   ✔ [1/2] Connection established...
-   ✔ [2/2] Compression enabled...
-   
-   ───────────────────────────────────────────────────────
-   
-   🔥 KEEP THE VIBE ALIVE?
-      (Made with ❤️ in Vietnam)
-
-   ⭐️  Drop a Star:   https://github.com/tuanngocptn/nport
-   ☕️  Buy Coffee:    https://buymeacoffee.com/tuanngocptn
-```
-
-### Custom Subdomain
-
-Choose your own subdomain:
-```bash
-nport 3000 -s myapp
-# Creates: https://myapp.nport.link
-```
-
-Or using long form:
-```bash
-nport 3000 --subdomain myapp
-```
-
-## 📖 Usage Examples
-
-### Web Development
-
-```bash
-# Next.js
-npm run dev
-nport 3000 -s my-nextjs-app
-
-# React (Create React App)
-npm start
-nport 3000 -s my-react-app
-
-# Vue.js
-npm run dev
-nport 8080 -s my-vue-app
-
-# Express.js
-node server.js
-nport 3000 -s my-api
-```
-
-### Webhook Testing
-
-```bash
-# Start your local webhook receiver
-node webhook-receiver.js
-
-# Expose it to the internet
-nport 4000 -s my-webhooks
-
-# Use in GitHub webhook settings:
-# https://my-webhooks.nport.link/webhook
-```
-
-### Mobile Device Testing
-
-```bash
-# Start your local dev server
-npm run dev
-
-# Create tunnel
-nport 3000 -s mobile-test
-
-# Open on your phone:
-# https://mobile-test.nport.link
-```
 
 ## 🎯 CLI Options
 
