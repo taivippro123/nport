@@ -53,8 +53,6 @@ export class BinaryManager {
    * Spawns the cloudflared tunnel process.
    */
   static spawn(binaryPath: string, token: string, port: number): ChildProcess {
-    const isWindows = process.platform === 'win32';
-    
     return spawn(binaryPath, [
       'tunnel',
       'run',
@@ -63,11 +61,8 @@ export class BinaryManager {
       '--url',
       `http://localhost:${port}`,
     ], {
-      // Windows-specific options to prevent spawn errors
       windowsHide: true,
-      // Use shell on Windows to handle path resolution better
-      shell: isWindows,
-      // Ensure stdio is set up properly
+      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   }

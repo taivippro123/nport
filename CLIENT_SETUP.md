@@ -253,6 +253,44 @@ nport [port] [options]
 - Clean up on `Ctrl+C`
 - No orphaned resources
 
+## Keep Subdomain Alive Locally (Auto Restart Every 3h55m)
+
+If you're using the default 4-hour cleanup policy and want to keep using the same subdomain continuously from your local machine, use the keepalive wrapper script.
+
+### 1) Build NPort
+
+```bash
+npm install
+npm run build
+```
+
+### 2) Start keepalive wrapper
+
+```bash
+# Example: keep tunnel for port 3000 with fixed subdomain
+npm run keepalive -- 3000 -s myapp
+```
+
+With custom backend:
+
+```bash
+npm run keepalive -- 3000 -s myapp -b https://your-backend.example.com
+```
+
+### 3) What this tool does
+
+- Starts `nport` with your exact arguments
+- Runs a countdown for 3 hours 55 minutes
+- Shows warnings in the last 5 minutes
+- Sends `SIGINT` (same as `Ctrl+C`) to trigger cleanup
+- Automatically starts `nport` again with the same subdomain
+
+### Notes
+
+- You must provide `-s` / `--subdomain` to keep the same URL.
+- If local app or network drops, the wrapper auto-retries.
+- Stop all loops with `Ctrl+C` in the keepalive terminal.
+
 ### ✅ Binary Management
 - Cloudflared binary downloads automatically on first run
 - Platform-specific binaries (Windows, macOS, Linux)

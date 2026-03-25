@@ -66,6 +66,7 @@
     "build": "node scripts/build.js",
     "dev": "node scripts/build.js --watch",
     "start": "node dist/index.js",
+    "keepalive": "node scripts/keepalive.js",
     "postinstall": "node scripts/postinstall.js",
     "test": "vitest run",
     "test:watch": "vitest",

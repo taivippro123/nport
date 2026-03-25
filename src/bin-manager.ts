@@ -19,6 +19,7 @@ const IS_WINDOWS = PLATFORM === 'win32';
 
 const BIN_NAME = IS_WINDOWS ? `${BINARY_NAME}.exe` : BINARY_NAME;
 const BIN_PATH = path.join(BIN_DIR, BIN_NAME);
+const META_PATH = path.join(BIN_DIR, 'cloudflared-meta.json');
 
 const GITHUB_BASE_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download';
 const REDIRECT_CODES = [301, 302];
@@ -26,6 +27,13 @@ const SUCCESS_CODE = 200;
 const UNIX_EXECUTABLE_MODE = '755';
 
 type PlatformMappings = Record<string, Record<string, string>>;
+
+interface BinaryMetadata {
+  platform: string;
+  arch: string;
+  downloadUrl: string;
+  downloadedAt: string;
+}
 
 const PLATFORM_MAPPINGS: PlatformMappings = {
   darwin: {
@@ -35,6 +43,7 @@ const PLATFORM_MAPPINGS: PlatformMappings = {
   win32: {
     x64: 'cloudflared-windows-amd64.exe',
     ia32: 'cloudflared-windows-386.exe',
+    arm64: 'cloudflared-windows-arm64.exe',
   },
   linux: {
     x64: 'cloudflared-linux-amd64',
@@ -46,10 +55,15 @@ const PLATFORM_MAPPINGS: PlatformMappings = {
 function normalizeArch(arch: string): string {
   const archMap: Record<string, string> = {
     x64: 'x64',
-    amd64: 'amd64',
+    amd64: 'x64',
+    x86: 'ia32',
+    i386: 'ia32',
     arm64: 'arm64',
+    aarch64: 'arm64',
     ia32: 'ia32',
+    x32: 'ia32',
     arm: 'arm',
+    armv7l: 'arm',
   };
   return archMap[arch] || arch;
 }
@@ -74,6 +88,39 @@ function getDownloadUrl(): string {
   }
 
   return `${GITHUB_BASE_URL}/${binaryName}`;
+}
+
+function readMetadata(): BinaryMetadata | null {
+  try {
+    if (!fs.existsSync(META_PATH)) {
+      return null;
+    }
+    const raw = fs.readFileSync(META_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as BinaryMetadata;
+    if (!parsed.platform || !parsed.arch) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeMetadata(downloadUrl: string): void {
+  const metadata: BinaryMetadata = {
+    platform: PLATFORM,
+    arch: normalizeArch(ARCH),
+    downloadUrl,
+    downloadedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(META_PATH, JSON.stringify(metadata, null, 2), 'utf8');
+}
+
+function isMetadataCompatible(metadata: BinaryMetadata | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+  return metadata.platform === PLATFORM && metadata.arch === normalizeArch(ARCH);
 }
 
 function isCompressedArchive(url: string): boolean {
@@ -175,10 +222,12 @@ const logger = {
 
 async function installBinary(): Promise<string> {
   logger.progress(
-    'Cloudflared binary not found. Downloading... (This happens only once)'
+    'Downloading cloudflared binary for current machine...'
   );
 
   const url = getDownloadUrl();
+  logger.info(`Detected platform/arch: ${PLATFORM}/${normalizeArch(ARCH)}`);
+  logger.info(`Download target: ${url}`);
   const isArchive = isCompressedArchive(url);
   const downloadDest = isArchive
     ? path.join(BIN_DIR, TEMP_ARCHIVE_NAME)
@@ -198,12 +247,14 @@ async function installBinary(): Promise<string> {
     }
 
     setExecutablePermissions(BIN_PATH);
+    writeMetadata(url);
 
     logger.success('Download complete.');
     return BIN_PATH;
   } catch (error) {
     safeUnlink(downloadDest);
     safeUnlink(BIN_PATH);
+    safeUnlink(META_PATH);
     throw error;
   }
 }
@@ -212,8 +263,26 @@ export async function ensureCloudflared(): Promise<string> {
   ensureDirectory(BIN_DIR);
 
   if (fs.existsSync(BIN_PATH)) {
-    setExecutablePermissions(BIN_PATH);
-    return BIN_PATH;
+    const metadata = readMetadata();
+    if (isMetadataCompatible(metadata)) {
+      setExecutablePermissions(BIN_PATH);
+      return BIN_PATH;
+    }
+
+    const reason = metadata
+      ? `found ${metadata.platform}/${metadata.arch}, expected ${PLATFORM}/${normalizeArch(ARCH)}`
+      : 'metadata missing';
+
+    logger.warn(`Existing binary may not match current machine (${reason}). Re-downloading...`);
+    safeUnlink(BIN_PATH);
+    safeUnlink(META_PATH);
+
+    try {
+      return await installBinary();
+    } catch (error) {
+      logger.error(`Installation failed: ${(error as Error).message}`);
+      process.exit(1);
+    }
   }
 
   try {
