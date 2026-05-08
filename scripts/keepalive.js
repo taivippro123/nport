@@ -12,6 +12,11 @@ const RESTART_INTERVAL_MS = 3 * 60 * 60 * 1000 + 55 * 60 * 1000; // 3h55m
 const WARNING_WINDOW_MINUTES = 5;
 const SHUTDOWN_GRACE_MS = 20_000;
 const RETRY_DELAY_MS = 10_000;
+const HEALTHCHECK_URL = 'https://bookfet.nport.link/api/health/test-OK';
+const HEALTHCHECK_INTERVAL_MS = 30_000;
+const HEALTHCHECK_TIMEOUT_MS = 8_000;
+const HEALTHCHECK_WARMUP_MS = 90_000;
+const MAX_HEALTHCHECK_FAILURES = 3;
 
 const rawArgs = process.argv.slice(2);
 
@@ -25,6 +30,9 @@ if (rawArgs.includes('-h') || rawArgs.includes('--help') || rawArgs.length === 0
   console.log('');
   console.log('Behavior:');
   console.log('  - Starts nport with your args');
+  console.log(`  - Calls health API: ${HEALTHCHECK_URL}`);
+  console.log(`  - Skips healthcheck for ${Math.floor(HEALTHCHECK_WARMUP_MS / 1000)}s after startup`);
+  console.log(`  - Restarts only after ${MAX_HEALTHCHECK_FAILURES} consecutive failed healthchecks`);
   console.log('  - Counts down from 3h55m');
   console.log('  - Warns in the last 5 minutes');
   console.log('  - Sends SIGINT (like Ctrl+C) to cleanup');
@@ -47,9 +55,13 @@ if (!hasSubdomain) {
 let child = null;
 let countdownTimer = null;
 let restartTimer = null;
+let healthcheckTimer = null;
 let isStopping = false;
 let isRestarting = false;
+let isHealthcheckRunning = false;
 let lastPrintedMinute = -1;
+let cycleStartedAt = 0;
+let healthFailStreak = 0;
 
 function fmtMs(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -67,6 +79,89 @@ function clearTimers() {
   if (restartTimer) {
     clearTimeout(restartTimer);
     restartTimer = null;
+  }
+  if (healthcheckTimer) {
+    clearInterval(healthcheckTimer);
+    healthcheckTimer = null;
+  }
+}
+
+async function healthCheckAndRestartIfNeeded() {
+  if (isStopping || isRestarting || isHealthcheckRunning) {
+    return;
+  }
+
+  if (!child || child.exitCode !== null || child.killed) {
+    return;
+  }
+
+  const uptimeMs = Date.now() - cycleStartedAt;
+  if (uptimeMs < HEALTHCHECK_WARMUP_MS) {
+    return;
+  }
+
+  isHealthcheckRunning = true;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HEALTHCHECK_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(HEALTHCHECK_URL, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    const isHealthy = response.ok && payload?.status === 'OK';
+
+    if (isHealthy) {
+      if (healthFailStreak > 0) {
+        console.log('✅ Healthcheck recovered. Keepalive continues normally.');
+      }
+      healthFailStreak = 0;
+      return;
+    }
+
+    healthFailStreak += 1;
+    console.log(
+      `\n⚠️ Healthcheck failed (${healthFailStreak}/${MAX_HEALTHCHECK_FAILURES}) at ${HEALTHCHECK_URL}.`
+    );
+
+    if (healthFailStreak >= MAX_HEALTHCHECK_FAILURES) {
+      console.log('♻️ Healthcheck failed repeatedly, restarting tunnel now...');
+      isRestarting = true;
+      clearTimers();
+      await gracefulStopChild();
+      scheduleRestart(1_000);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    healthFailStreak += 1;
+    console.log(
+      `\n⚠️ Healthcheck error (${healthFailStreak}/${MAX_HEALTHCHECK_FAILURES}): ${message}`
+    );
+
+    if (healthFailStreak >= MAX_HEALTHCHECK_FAILURES) {
+      console.log('♻️ Healthcheck error repeated, restarting tunnel now...');
+      isRestarting = true;
+      clearTimers();
+      await gracefulStopChild();
+      scheduleRestart(1_000);
+    }
+  } finally {
+    isHealthcheckRunning = false;
   }
 }
 
@@ -111,6 +206,8 @@ function startCycle() {
   clearTimers();
   isRestarting = false;
   lastPrintedMinute = -1;
+  cycleStartedAt = Date.now();
+  healthFailStreak = 0;
 
   console.log('\n============================================================');
   console.log(`🚀 Starting nport: node dist/index.js ${rawArgs.join(' ')}`);
@@ -121,10 +218,15 @@ function startCycle() {
     stdio: 'inherit',
   });
 
-  const cycleStart = Date.now();
+  const cycleStart = cycleStartedAt;
   const cycleEnd = cycleStart + RESTART_INTERVAL_MS;
 
   console.log(`⏱️ Auto-restart in 3h55m (at ${new Date(cycleEnd).toLocaleString()})`);
+
+  healthCheckAndRestartIfNeeded();
+  healthcheckTimer = setInterval(() => {
+    healthCheckAndRestartIfNeeded();
+  }, HEALTHCHECK_INTERVAL_MS);
 
   countdownTimer = setInterval(async () => {
     const remainingMs = cycleEnd - Date.now();
